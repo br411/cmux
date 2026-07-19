@@ -28,52 +28,11 @@ Bad JSON returns `ok:false` with no request id.
 
 ## Command Contract
 
-The full API contract is intended to live in `cmux-tui/spec/`, but that directory is not present in this checkout. Until it lands, `cmux-tui-core/src/server.rs` is the command source of truth.
-
-The server command set in this branch is:
-
-```text
-identify
-list-workspaces
-send
-read-screen
-vt-state
-new-tab
-new-browser-tab
-new-workspace
-new-screen
-split
-set-ratio
-move-tab
-move-workspace
-set-default-colors
-close-surface
-close-pane
-close-screen
-close-workspace
-rename-pane
-rename-surface
-rename-screen
-rename-workspace
-resize-surface
-release-surface-size
-focus-pane
-select-tab
-select-screen
-select-workspace
-browser-mouse
-browser-wheel
-browser-key
-browser-insert-text
-browser-navigate
-browser-back
-browser-forward
-browser-reload
-browser-activate
-subscribe
-attach-surface
-scroll-surface
-```
+The complete command schemas live in
+[`spec/commands.md`](../spec/commands.md), event schemas and stream scoping in
+[`spec/events.md`](../spec/events.md), and framing, state-path, and security
+rules in [`spec/transports.md`](../spec/transports.md). This guide illustrates
+common flows rather than duplicating the exhaustive command list.
 
 `move-tab` moves a surface to a target pane and insertion index. It supports same-pane reorder and cross-pane moves.
 
@@ -153,7 +112,13 @@ The remote TUI requires protocol v7. It refuses servers reporting any other prot
 
 Attach clients mirror PTY surfaces locally. A client can include paired `cols` and `rows` in `attach-surface`, so the server records its initial size claim before capturing the first VT replay or render state.
 
-When several attach clients render the same surface at different sizes, sizing follows latest local interaction. A client reasserts its visible sizes after key input, mouse input, paste, focus gained, or terminal resize. Mux-driven redraws update local mirrors from `surface-resized` without reasserting an idle client's viewport.
+When several clients display the same surface, the authoritative grid uses the
+smallest reported columns and the smallest reported rows across visible
+viewers. A client reports after the surface becomes visible and whenever its
+local viewport changes, then sends `release-surface-size` when the surface is
+hidden. Input and mux-driven redraws do not claim sizing ownership or cause a
+passive client to reassert its viewport. See the canonical
+[`Sizing`](../spec/commands.md#sizing) contract.
 
 ## Browser Limitations
 
