@@ -136,7 +136,24 @@ struct MobileIrohReleaseGateRunnerTests {
             cachesDirectory: cache
         ))
         #expect(configuration.mode == .relayOnly)
+        #expect(configuration.scenario == .standard)
         #expect(configuration.reportURL.lastPathComponent == "cmux-iroh-release-gate.json")
+
+        let rollover = try #require(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "relayOnly",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_rollover",
+            ],
+            cachesDirectory: cache
+        ))
+        #expect(rollover.scenario == .relayRollover)
+        #expect(MobileIrohReleaseGateRunner.Configuration(
+            environment: [
+                "CMUX_IROH_RELEASE_GATE_MODE": "automatic",
+                "CMUX_IROH_RELEASE_GATE_SCENARIO": "relay_expiry",
+            ],
+            cachesDirectory: cache
+        ) == nil)
     }
 
     @Test(arguments: [
@@ -178,8 +195,9 @@ struct MobileIrohReleaseGateRunnerTests {
     @Test
     func encodedReportContainsNoTopologyOrIdentityFields() throws {
         let report = MobileIrohReleaseGateRunner.Report(
-            schemaVersion: 2,
+            schemaVersion: 3,
             mode: "relayOnly",
+            scenario: "relay_rollover",
             passed: true,
             hostStatusVerified: true,
             terminalRoundTripVerified: true,
@@ -188,6 +206,14 @@ struct MobileIrohReleaseGateRunnerTests {
             notificationReconcileVerified: true,
             chatSessionsVerified: true,
             artifactScanCountVerified: true,
+            relayCredentialRolloverVerified: true,
+            endpointContinuityVerified: true,
+            connectionContinuityVerified: true,
+            controlStreamContinuityVerified: true,
+            independentEventsContinuityVerified: true,
+            artifactLaneVerified: true,
+            unrefreshedExpiryDisconnectVerified: false,
+            soakDurationSeconds: 330,
             routeKind: "iroh",
             selectedPath: "managed_relay",
             failure: nil
@@ -198,6 +224,7 @@ struct MobileIrohReleaseGateRunnerTests {
         #expect(Set(object.keys) == [
             "schemaVersion",
             "mode",
+            "scenario",
             "passed",
             "hostStatusVerified",
             "terminalRoundTripVerified",
@@ -206,6 +233,14 @@ struct MobileIrohReleaseGateRunnerTests {
             "notificationReconcileVerified",
             "chatSessionsVerified",
             "artifactScanCountVerified",
+            "relayCredentialRolloverVerified",
+            "endpointContinuityVerified",
+            "connectionContinuityVerified",
+            "controlStreamContinuityVerified",
+            "independentEventsContinuityVerified",
+            "artifactLaneVerified",
+            "unrefreshedExpiryDisconnectVerified",
+            "soakDurationSeconds",
             "routeKind",
             "selectedPath",
         ])

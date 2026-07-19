@@ -41,6 +41,7 @@ struct CmxIrohClientSessionTests {
         )
 
         try await session.connect()
+        #expect(await session.connectionContinuityID() == 1)
 
         // Admission must not grant peer-initiated stream credit before a
         // production owner is installed. The dedicated server-events receiver

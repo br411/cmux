@@ -27,6 +27,16 @@ struct MobileIrohReleaseGateResponseValidatorTests {
             subscribed,
             expectedStreamID: streamID
         ))
+        #expect(MobileIrohReleaseGateResponseValidator.independentEventSubscription(
+            subscribed,
+            expectedStreamID: streamID,
+            expectedAlreadySubscribed: false
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.independentEventSubscription(
+            subscribed,
+            expectedStreamID: streamID,
+            expectedAlreadySubscribed: true
+        ))
         #expect(!MobileIrohReleaseGateResponseValidator.independentEventSubscription(
             controlFallback,
             expectedStreamID: streamID
@@ -35,6 +45,38 @@ struct MobileIrohReleaseGateResponseValidatorTests {
             unsubscribed,
             expectedStreamID: streamID
         ))
+    }
+
+    @Test
+    func artifactContinuityRequiresTheExactAuthorizedPathAndLaneDescriptor() throws {
+        let path = "/tmp/cmux-iroh-gate.txt"
+        let scan = try ChatWireCoding().encode(TerminalArtifactScanResponse(artifacts: [
+            TerminalArtifactReference(
+                path: path,
+                kind: .text,
+                displayName: "cmux-iroh-gate.txt",
+                size: 12
+            ),
+        ]))
+        let descriptor = ChatArtifactLaneDescriptor(
+            resourceID: "opaque-resource",
+            totalSize: 12,
+            expiresAt: Date(timeIntervalSince1970: 2_000_000_000)
+        )
+        let encodedDescriptor = try ChatWireCoding().encode(descriptor)
+
+        #expect(MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: path
+        ))
+        #expect(!MobileIrohReleaseGateResponseValidator.artifactPath(
+            scan,
+            expectedPath: "/tmp/other.txt"
+        ))
+        #expect(
+            MobileIrohReleaseGateResponseValidator.artifactLaneDescriptor(encodedDescriptor)
+                == descriptor
+        )
     }
 
     @Test
