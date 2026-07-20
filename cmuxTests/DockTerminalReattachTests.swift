@@ -85,7 +85,8 @@ extension DockSocketLifecycleTests {
             isRemoteTerminal: false,
             remoteRelayPort: nil,
             remotePTYSessionID: nil,
-            remoteCleanupConfiguration: nil
+            remoteCleanupConfiguration: nil,
+            remoteTmuxWindow: nil
         )
     }
 

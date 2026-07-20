@@ -138,6 +138,7 @@ import Testing
     /// subsequent socket `close-window` appear to succeed without removing the
     /// observed window (#7992).
     @Test func explicitDetachOfDedicatedLastMirrorClosesOwningWindow() async throws {
+        try await AppContextSerialGate.withExclusiveAppContext {
         let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("remote-tmux-explicit-detach-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -195,6 +196,7 @@ import Testing
             $0.windowId == harness.windowId
         })
         #expect(harness.appDelegate.recoverableMainWindowRoute(windowId: harness.windowId) == nil)
+    }
     }
 
     /// A remote session ending removes its dead mirror but preserves the owning
@@ -390,7 +392,9 @@ import Testing
         let harness = try Harness()
         var targetWindowID: UUID?
         defer {
-            if let targetWindowID { harness.closeWindow(targetWindowID) }
+            if let targetWindowID {
+                harness.closeWindow(targetWindowID)
+            }
             harness.tearDown()
         }
         let host = RemoteTmuxHost(destination: "focus-\(UUID().uuidString)@example.test")
@@ -467,7 +471,9 @@ import Testing
         let windowId: UUID
         let manager: TabManager
         let workspace: Workspace
-        var controller: RemoteTmuxController { appDelegate.remoteTmuxController }
+        var controller: RemoteTmuxController {
+            appDelegate.remoteTmuxController
+        }
 
         init() throws {
             appDelegate = try #require(AppDelegate.shared)

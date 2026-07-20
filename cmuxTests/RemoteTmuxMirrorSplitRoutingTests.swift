@@ -2,6 +2,7 @@ import CmuxRemoteSession
 import AppKit
 import Bonsplit
 import CmuxControlSocket
+import CmuxSettings
 import Testing
 
 #if canImport(cmux_DEV)
@@ -119,6 +120,94 @@ import Testing
         #expect(splitCommands.count == 1)
         #expect(splitCommands.first?.split(separator: " ").contains("-d") == true)
         #expect(harness.mirror.activePaneId == activePaneBefore)
+    }
+
+    @Test func mirrorSplitRejectsInsertFirstBeforeSendingCommand() throws {
+        let harness = try RemoteTmuxMirrorCLIObservabilityTests.Harness(
+            connectedTransport: true
+        )
+        defer { harness.tearDown() }
+        let panelsBefore = harness.workspace.panels.count
+
+        let result = harness.workspace.newTerminalSplitOutcome(
+            from: harness.outerPanelID,
+            orientation: .horizontal,
+            insertFirst: true,
+            focus: false
+        )
+
+        guard case .failed = result else {
+            Issue.record("Expected insert-first mirror split to fail: \(result)")
+            return
+        }
+        #expect(harness.workspace.panels.count == panelsBefore)
+        let writer = try #require(harness.controlWriter)
+        let pipe = try #require(harness.controlPipe)
+        writer.close()
+        let commands = try #require(String(
+            bytes: try pipe.fileHandleForReading.readToEnd() ?? Data(),
+            encoding: .utf8
+        ))
+        #expect(!commands.split(separator: "\n").contains {
+            $0.hasPrefix("split-window ")
+        })
+    }
+
+    @Test func closingEmbeddedPaneRoutesOneKillPaneAndWaitsForTmuxReconciliation() throws {
+        let harness = try RemoteTmuxMirrorRenameHarness()
+        defer { harness.tearDown() }
+
+        let catalog = AppCatalogSection()
+        let defaults = harness.workspace.closeTabWarningDefaults
+        let warnedForShortcut = catalog.warnBeforeClosingTab.value(in: defaults)
+        let warnedForCloseButton = catalog.warnBeforeClosingTabXButton.value(in: defaults)
+        catalog.warnBeforeClosingTab.set(false, in: defaults)
+        catalog.warnBeforeClosingTabXButton.set(false, in: defaults)
+        defer {
+            catalog.warnBeforeClosingTab.set(warnedForShortcut, in: defaults)
+            catalog.warnBeforeClosingTabXButton.set(warnedForCloseButton, in: defaults)
+        }
+
+        let sessionMirror = try #require(harness.workspace.remoteTmuxSessionMirror)
+        let containerPanelId = try #require(sessionMirror.panelIdByWindow[2])
+        let windowMirror = try #require(
+            harness.workspace.remoteTmuxWindowMirror(forPanelId: containerPanelId)
+        )
+        let paneToClose = try #require(windowMirror.paneIdByPaneId[5])
+        let paneCountBefore = windowMirror.bonsplitController.allPaneIds.count
+
+        #expect(!windowMirror.bonsplitController.closePane(paneToClose))
+        #expect(windowMirror.bonsplitController.allPaneIds.count == paneCountBefore)
+        #expect(windowMirror.panel(forPane: 4) != nil)
+        #expect(windowMirror.panel(forPane: 5) != nil)
+
+        let survivingLayout = "f92f,80x24,0,0,4"
+        harness.connection.handleMessageForTesting(.layoutChange(
+            windowId: 2,
+            layout: survivingLayout,
+            visibleLayout: survivingLayout,
+            zoomed: false
+        ))
+        while let kind = harness.connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            if case let .paneRects(windowId, _) = kind, windowId == 2 {
+                lines = ["%4 0 0 80 24 1 off :0 \"remote-host\""]
+            } else {
+                lines = []
+            }
+            harness.connection.handleMessageForTesting(
+                .commandResult(commandNumber: 3, lines: lines, isError: false)
+            )
+        }
+
+        #expect(sessionMirror.panelIdByWindow[2] == containerPanelId)
+        #expect(windowMirror.panel(forPane: 4) != nil)
+        #expect(windowMirror.panel(forPane: 5) == nil)
+        #expect(try harness.surfaces().map(\.title) == ["main"])
+
+        let commands = try harness.finishCommands()
+        #expect(commands.filter { $0.hasPrefix("kill-pane ") } == ["kill-pane -t @2.%5"])
+        #expect(!commands.contains { $0.hasPrefix("kill-window ") })
     }
 
     @Test func windowMirrorConfigurationTracksWorkspaceAppearanceAndEmbeddedPolicy() {

@@ -290,18 +290,25 @@ import Testing
         // reorder of the present tabs.
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b], requested: [b, a, UUID()]) == [b, a])
     }
+    @Test func mirrorTabReorderPreservesMixedWorkspaceLocalTabSlots() {
+        let local = UUID(), firstRemote = UUID(), secondRemote = UUID()
+        #expect(
+            RemoteTmuxSessionMirror.mirrorTabReorder(
+                current: [firstRemote, local, secondRemote],
+                requested: [secondRemote, firstRemote]
+            ) == [secondRemote, local, firstRemote]
+        )
+    }
+
 
     @Test func mirrorTabReorderNoOpsWhenAlreadyOrdered() {
         let a = UUID(), b = UUID(), c = UUID()
         #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b, c]) == nil)
     }
 
-    @Test func mirrorTabReorderSkipsWhenSetsDiverge() {
+    @Test func mirrorTabReorderSkipsMalformedSubset() {
         let a = UUID(), b = UUID(), c = UUID()
-        // Requested is missing a present tab → not a permutation → leave untouched.
-        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [a, b]) == nil)
-        // Requested drops one present tab and only reorders the rest → sets diverge.
-        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, b]) == nil)
+        #expect(RemoteTmuxSessionMirror.mirrorTabReorder(current: [a, b, c], requested: [c, c]) == nil)
     }
 
     @Test func singlePaneDisplaySeedsOnlySinglePaneWindows() throws {

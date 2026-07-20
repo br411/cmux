@@ -202,13 +202,18 @@ struct RemoteTmuxMirrorTargetingTests {
             ],
             isError: false
         ))
-        for kind in connection.pendingCommandKindsForTesting {
-            guard case let .paneRects(windowId, _) = kind else { continue }
+        while let kind = connection.pendingCommandKindsForTesting.first {
+            let lines: [String]
+            if case let .paneRects(windowId, _) = kind {
             let paneId = windowId == 1 ? 0 : 5
             let size = windowId == 1 ? "80 24" : "90 30"
+                lines = ["%\(paneId) 0 0 \(size) 1 off :zsh"]
+            } else {
+                lines = []
+            }
             connection.handleMessageForTesting(.commandResult(
                 commandNumber: 2,
-                lines: ["%\(paneId) 0 0 \(size) 1 off :zsh"],
+                lines: lines,
                 isError: false
             ))
         }

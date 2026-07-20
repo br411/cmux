@@ -129,6 +129,11 @@ extension TerminalSurface {
     public func debugRuntimeSurfaceCreateAttemptCountForTesting() -> Int {
         runtimeSurfaceCreateAttemptCountForTesting
     }
+    /// Bytes accepted through the remote-output parser entry point (test hook).
+    @MainActor
+    public func debugRemoteOutputByteCountForTesting() -> Int {
+        remoteOutputByteCountForTesting
+    }
 
     /// Whether a background surface start is queued (test hook).
     @MainActor

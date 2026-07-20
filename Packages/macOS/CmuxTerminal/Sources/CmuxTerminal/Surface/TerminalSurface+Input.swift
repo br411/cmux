@@ -520,6 +520,9 @@ extension TerminalSurface {
     @MainActor
     public func processRemoteOutput(_ data: Data) {
         guard !data.isEmpty else { return }
+#if DEBUG
+        remoteOutputByteCountForTesting += data.count
+#endif
         guard let surface = liveSurfaceForGhosttyAccess(reason: "remoteOutput") else {
             pendingRemoteOutput.append(data)
             if pendingRemoteOutput.count > maxPendingRemoteOutputBytes {

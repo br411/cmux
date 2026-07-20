@@ -67,6 +67,7 @@ struct RemoteTmuxSessionRenameTitleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         manager.window = window
         defer {
             manager.window = nil
@@ -115,6 +116,7 @@ struct RemoteTmuxSessionRenameTitleTests {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         destinationManager.window = window
         defer {
             destinationManager.window = nil
