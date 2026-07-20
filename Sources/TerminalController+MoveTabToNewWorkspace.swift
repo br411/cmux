@@ -1,5 +1,5 @@
-import Foundation
 import Bonsplit
+import Foundation
 
 private enum SurfaceSplitOffMessage {
     static let missingSurfaceId = String(localized: "socket.surfaceSplitOff.error.missingSurfaceId", defaultValue: "Missing or invalid surface_id")
@@ -94,7 +94,7 @@ extension TerminalController {
         "pane.join",
         "markdown.open",
         "browser.open_split",
-        "sidebar.custom.open"
+        "sidebar.custom.open",
     ]
 
     nonisolated static func explicitFocusParamAllowsFocus(commandKey: String, params: [String: Any]) -> Bool {
@@ -103,8 +103,12 @@ extension TerminalController {
 
     private nonisolated static func explicitFocusParamValue(_ params: [String: Any]) -> Bool {
         guard let raw = params["focus"] else { return false }
-        if let bool = raw as? Bool { return bool }
-        if let number = raw as? NSNumber { return number.boolValue }
+        if let bool = raw as? Bool {
+            return bool
+        }
+        if let number = raw as? NSNumber {
+            return number.boolValue
+        }
         if let string = raw as? String {
             switch string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
             case "1", "true", "yes", "on":
@@ -131,7 +135,8 @@ extension TerminalController {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.missingSurfaceId, data: nil)
         }
         guard let directionStr = v2String(params, "direction"),
-              let direction = parseSplitDirection(directionStr) else {
+              let direction = parseSplitDirection(directionStr)
+        else {
             return .err(code: "invalid_params", message: SurfaceSplitOffMessage.invalidDirection, data: nil)
         }
 
@@ -146,21 +151,22 @@ extension TerminalController {
                 return
             }
             guard let located = app.locateSurface(surfaceId: surfaceId),
-                  let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }) else {
+                  let ws = located.tabManager.tabs.first(where: { $0.id == located.workspaceId })
+            else {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFound, data: ["surface_id": surfaceId.uuidString])
                 return
             }
             if let requestedWindowId, requestedWindowId != located.windowId {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFoundInWindow, data: [
                     "surface_id": surfaceId.uuidString,
-                    "window_id": requestedWindowId.uuidString
+                    "window_id": requestedWindowId.uuidString,
                 ])
                 return
             }
             if let requestedWorkspaceId, requestedWorkspaceId != ws.id {
                 result = .err(code: "not_found", message: SurfaceSplitOffMessage.surfaceNotFoundInWorkspace, data: [
                     "surface_id": surfaceId.uuidString,
-                    "workspace_id": requestedWorkspaceId.uuidString
+                    "workspace_id": requestedWorkspaceId.uuidString,
                 ])
                 return
             }
@@ -175,14 +181,14 @@ extension TerminalController {
             guard ws.bonsplitController.tabs(inPane: sourcePane).count > 1 else {
                 result = .err(code: "invalid_state", message: SurfaceSplitOffMessage.wouldEmptySourcePane, data: [
                     "surface_id": surfaceId.uuidString,
-                    "pane_id": sourcePane.id.uuidString
+                    "pane_id": sourcePane.id.uuidString,
                 ])
                 return
             }
             let previousFocusedPanelId = ws.focusedPanelId
-            guard let newPaneId = ws.bonsplitController.splitPane(
+            guard let newPaneId = ws.splitPaneForExistingSurface(
+                panelId: surfaceId,
                 orientation: orientation,
-                movingTab: bonsplitTabId,
                 insertFirst: insertFirst
             ) else {
                 result = .err(code: "internal_error", message: SurfaceSplitOffMessage.splitPaneFailed, data: nil)
@@ -204,7 +210,7 @@ extension TerminalController {
                 "surface_id": surfaceId.uuidString,
                 "surface_ref": v2Ref(kind: .surface, uuid: surfaceId),
                 "pane_id": newPaneId.id.uuidString,
-                "pane_ref": v2Ref(kind: .pane, uuid: newPaneId.id)
+                "pane_ref": v2Ref(kind: .pane, uuid: newPaneId.id),
             ])
         }
         return result

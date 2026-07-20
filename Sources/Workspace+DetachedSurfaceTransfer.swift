@@ -17,6 +17,14 @@ extension Workspace {
         let agentPIDKeys: Set<String>
     }
 
+    /// Session-owned routing metadata for a mirrored tmux window whose display
+    /// panel is moving between workspaces. The terminal surface itself survives
+    /// the move; this keeps the control-stream owner attached to that surface.
+    struct DetachedRemoteTmuxWindow {
+        let sessionMirror: RemoteTmuxSessionMirror
+        let windowId: Int
+    }
+
     struct DetachedSurfaceTransfer {
         let sourceWorkspaceId: UUID
         let panelId: UUID
@@ -47,6 +55,7 @@ extension Workspace {
         let remoteRelayPort: Int?
         let remotePTYSessionID: String?
         let remoteCleanupConfiguration: WorkspaceRemoteConfiguration?
+        let remoteTmuxWindow: DetachedRemoteTmuxWindow?
 
         func withRemoteCleanupConfiguration(_ configuration: WorkspaceRemoteConfiguration?) -> Self {
             Self(
@@ -78,7 +87,8 @@ extension Workspace {
                 isRemoteTerminal: isRemoteTerminal,
                 remoteRelayPort: remoteRelayPort,
                 remotePTYSessionID: remotePTYSessionID,
-                remoteCleanupConfiguration: configuration
+                remoteCleanupConfiguration: configuration,
+                remoteTmuxWindow: remoteTmuxWindow
             )
         }
     }

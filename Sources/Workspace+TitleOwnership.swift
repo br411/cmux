@@ -68,7 +68,8 @@ extension Workspace {
         var didMutatePanelTitle = false
         var didMutateWorkspaceTitle = false
 
-        if !isRemoteTmuxMirror, panelTitles[panelId] != trimmed {
+        let isRemoteTmuxWindow = isRemoteTmuxMirror || remoteTmuxSessionMirror(forPanelId: panelId) != nil
+        if !isRemoteTmuxWindow, panelTitles[panelId] != trimmed {
             panelTitles[panelId] = trimmed
             didMutate = true
             didMutatePanelTitle = true
@@ -91,7 +92,7 @@ extension Workspace {
             }
         }
 
-        if !isRemoteTmuxMirror, panels.count == 1, customTitle == nil {
+        if !isRemoteTmuxWindow, panels.count == 1, customTitle == nil {
             if self.title != trimmed {
                 applyAutomaticTitle(trimmed)
                 didMutate = true

@@ -301,7 +301,9 @@ extension TerminalController: ControlPaneContext {
             return .noSourceSurface
         }
 
-        if ws.isRemoteTmuxMirror, panelType == .terminal {
+        if ws.remoteTmuxSessionMirror(forPanelId: sourcePanelId) != nil,
+           panelType == .terminal
+        {
             let unsupported = mirrorRoutedUnsupportedOptions(
                 insertFirst: insertFirst,
                 workingDirectory: inputs.workingDirectory,

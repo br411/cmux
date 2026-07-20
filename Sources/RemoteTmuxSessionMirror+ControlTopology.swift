@@ -40,15 +40,18 @@ extension RemoteTmuxSessionMirror {
     }
 
     func controlPaneLocations(
+        workspaceId: UUID,
         containerPanelID requestedContainerPanelID: UUID? = nil
     ) -> [RemoteTmuxControlPaneLocation] {
-        guard let workspace else { return [] }
         let windowIDs: [Int]
         if let requestedContainerPanelID {
-            guard let windowID = windowIdByPanel[requestedContainerPanelID] else { return [] }
+            guard let windowID = windowIdByPanel[requestedContainerPanelID],
+                  workspaceOwningWindow(windowID)?.id == workspaceId else { return [] }
             windowIDs = [windowID]
         } else {
-            windowIDs = connection.windowOrder
+            windowIDs = connection.windowOrder.filter {
+                workspaceOwningWindow($0)?.id == workspaceId
+            }
         }
         return windowIDs.flatMap { windowID -> [RemoteTmuxControlPaneLocation] in
             guard let containerPanelID = self.panelIdByWindow[windowID],
@@ -69,6 +72,7 @@ extension RemoteTmuxSessionMirror {
                   self.windowIdByPane[tmuxPaneID] == windowID,
                   let paneID = self.controlPaneIdByPane[tmuxPaneID],
                   let panelID = self.panelIdByPane[tmuxPaneID],
+                  let workspace = self.workspaceOwningWindow(windowID),
                   let panel = workspace.panels[panelID] as? TerminalPanel else { return [] }
             let pane = RemoteTmuxControlPane(
                 tmuxPaneID: tmuxPaneID,
@@ -86,12 +90,12 @@ extension RemoteTmuxSessionMirror {
         }
     }
 
-    func controlPaneLocation(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
-        controlPaneLocations().first(where: { $0.pane.paneID.id == paneID })
+    func controlPaneLocation(workspaceId: UUID, paneID: UUID) -> RemoteTmuxControlPaneLocation? {
+        controlPaneLocations(workspaceId: workspaceId).first(where: { $0.pane.paneID.id == paneID })
     }
 
-    func controlPaneLocation(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
-        controlPaneLocations().first(where: { $0.pane.panel.id == surfaceID })
+    func controlPaneLocation(workspaceId: UUID, surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
+        controlPaneLocations(workspaceId: workspaceId).first(where: { $0.pane.panel.id == surfaceID })
     }
 
     func controlFocus(pane tmuxPaneID: Int) -> Bool {

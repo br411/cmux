@@ -15,7 +15,8 @@ extension TerminalController {
     func controlSidebarPaneList() -> ControlSidebarPaneListSnapshot? {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return nil
         }
 
@@ -31,7 +32,8 @@ extension TerminalController {
     func controlSidebarPaneSurfaces(paneArg: String?) -> ControlSidebarPaneSurfacesResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return .noTabSelected
         }
 
@@ -39,7 +41,8 @@ extension TerminalController {
         var targetPaneId: PaneID? = tab.bonsplitController.focusedPaneId
         if let paneArg {
             if let uuid = UUID(uuidString: paneArg),
-               let paneId = paneIds.first(where: { $0.id == uuid }) {
+               let paneId = paneIds.first(where: { $0.id == uuid })
+            {
                 targetPaneId = paneId
             } else if let index = Int(paneArg), index >= 0, index < paneIds.count {
                 targetPaneId = paneIds[index]
@@ -67,7 +70,8 @@ extension TerminalController {
     func controlSidebarFocusPane(paneArg: String) -> Bool {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return false
         }
 
@@ -75,7 +79,8 @@ extension TerminalController {
 
         // Try UUID first, then fall back to index
         if let uuid = UUID(uuidString: paneArg),
-           let paneId = paneIds.first(where: { $0.id == uuid }) {
+           let paneId = paneIds.first(where: { $0.id == uuid })
+        {
             tab.bonsplitController.focusPane(paneId)
             return true
         } else if let index = Int(paneArg), index >= 0, index < paneIds.count {
@@ -88,14 +93,16 @@ extension TerminalController {
     func controlSidebarFocusSurfaceByPanel(panelID: UUID) -> Bool {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return false
         }
 
         // Focus by panel UUID (our stable surface handle). This must also move AppKit
         // first responder into the terminal view to ensure typing routes correctly.
         guard tab.panels[panelID] != nil,
-              tab.surfaceIdFromPanelId(panelID) != nil else {
+              tab.surfaceIdFromPanelId(panelID) != nil
+        else {
             return false
         }
         tabManager.focusSurface(tabId: tab.id, surfaceId: panelID)
@@ -134,12 +141,12 @@ extension TerminalController {
         switch v2SurfaceSplitOff(params: [
             "surface_id": surfaceID.uuidString,
             "direction": directionRawValue,
-            "focus": false
+            "focus": false,
         ]) {
-        case .ok(let payload):
+        case let .ok(payload):
             let dict = payload as? [String: Any]
             return .ok(paneID: (dict?["pane_id"] as? String) ?? "")
-        case .err(_, let message, _):
+        case let .err(_, message, _):
             return .error(message: message)
         }
     }
@@ -151,19 +158,21 @@ extension TerminalController {
     ) -> ControlSidebarDragToSplitResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return .noTabSelected
         }
 
         guard let panelId = controlSidebarResolveSurfaceId(from: surfaceArg, tab: tab),
-              let bonsplitTabId = tab.surfaceIdFromPanelId(panelId) else {
+              let bonsplitTabId = tab.surfaceIdFromPanelId(panelId)
+        else {
             return .surfaceNotFound
         }
 
         let orientation: SplitOrientation = orientationIsHorizontal ? .horizontal : .vertical
-        guard let newPaneId = tab.bonsplitController.splitPane(
+        guard let newPaneId = tab.splitPaneForExistingSurface(
+            panelId: panelId,
             orientation: orientation,
-            movingTab: bonsplitTabId,
             insertFirst: insertFirst
         ) else {
             return .splitFailed
@@ -182,7 +191,8 @@ extension TerminalController {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
               let tab = tabManager.tabs.first(where: { $0.id == tabId }),
-              let focusedPanelId = tab.focusedPanelId else {
+              let focusedPanelId = tab.focusedPanelId
+        else {
             return .failed
         }
 
@@ -200,7 +210,9 @@ extension TerminalController {
             }
             return .created(id)
         }
-        if tab.isRemoteTmuxMirror, insertFirst {
+        if tab.isRemoteTmuxMirror || tab.remoteTmuxSessionMirror(forPanelId: focusedPanelId) != nil,
+           insertFirst
+        {
             // Routed tmux `split-window` cannot insert before the target
             // pane; reject before mutating the remote session.
             return .mirrorInsertFirstRejected
@@ -212,7 +224,7 @@ extension TerminalController {
             focus: focus,
             allowTextBoxFocusDefault: false
         ) {
-        case .created(let panel):
+        case let .created(panel):
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
@@ -227,7 +239,8 @@ extension TerminalController {
         let focus = Self.socketCommandAllowsInAppFocusMutations()
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return .noTabSelected
         }
 
@@ -267,7 +280,7 @@ extension TerminalController {
             inheritWorkingDirectoryFallback: true,
             allowTextBoxFocusDefault: false
         ) {
-        case .created(let panel):
+        case let .created(panel):
             return .created(panel.id)
         case .routedToRemote:
             return .routedToRemote
@@ -279,7 +292,8 @@ extension TerminalController {
     func controlSidebarCloseSurface(surfaceArg: String?) -> ControlSidebarCloseSurfaceResolution {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return .noTabSelected
         }
 
@@ -354,7 +368,8 @@ extension TerminalController {
     func controlSidebarRefreshSurfaces() -> Int {
         guard let tabManager,
               let tabId = tabManager.selectedTabId,
-              let tab = tabManager.tabs.first(where: { $0.id == tabId }) else {
+              let tab = tabManager.tabs.first(where: { $0.id == tabId })
+        else {
             return 0
         }
 
@@ -372,7 +387,8 @@ extension TerminalController {
 
     func controlSidebarSurfaceHealth(tabArg: String) -> [ControlSidebarSurfaceHealthRow]? {
         guard let tabManager,
-              let tab = controlSidebarResolveTab(from: tabArg, tabManager: tabManager) else {
+              let tab = controlSidebarResolveTab(from: tabArg, tabManager: tabManager)
+        else {
             return nil
         }
         let panels = orderedPanels(in: tab)
@@ -412,7 +428,9 @@ extension TerminalController {
     private func controlSidebarIsPortalHosted(_ view: NSView) -> Bool {
         var current: NSView? = view
         while let v = current {
-            if v is WindowTerminalHostView { return true }
+            if v is WindowTerminalHostView {
+                return true
+            }
             current = v.superview
         }
         return false

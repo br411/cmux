@@ -202,11 +202,11 @@ extension AppDelegate {
             return false
         }
 
-        if let splitTarget, let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId) {
-            _ = destinationWorkspace.bonsplitController.splitPane(
-                resolvedPane,
+        if let splitTarget {
+            _ = destinationWorkspace.splitPaneForExistingSurface(
+                panelId: panelId,
+                targetPane: resolvedPane,
                 orientation: splitTarget.orientation,
-                movingTab: movedTabId,
                 insertFirst: splitTarget.insertFirst
             )
         }
@@ -274,11 +274,11 @@ extension AppDelegate {
     }
 
     private func canMoveSurfaceIntoDock(_ source: ContainerSurfaceLocation) -> Bool {
-        if case .workspace(_, let workspace, _, _) = source,
-           workspace.isRemoteTmuxMirror {
-            // Remote tmux mirror panes are manually driven by the mirror
-            // workspace. Dock has no mirror-owned I/O routing yet, so moving one
-            // would leave the Dock panel detached from its remote owner.
+        if case .workspace(_, let workspace, let panelId, _) = source,
+           workspace.remoteTmuxSessionMirror(forPanelId: panelId) != nil {
+            // Dock does not participate in remote-tmux control topology or cwd,
+            // rename, split, and authoritative-close routing. Keep the window
+            // under a Workspace owner rather than preserving output alone.
             return false
         }
         return true

@@ -5,10 +5,15 @@ extension Workspace {
     @discardableResult
     func reorderSurface(panelId: UUID, toIndex index: Int, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
-        let mirrorPaneId = isRemoteTmuxMirror ? paneId(forPanelId: panelId) : nil
+        let mirrorPaneId = (isRemoteTmuxMirror || remoteTmuxSessionMirror(forPanelId: panelId) != nil)
+            ? paneId(forPanelId: panelId)
+            : nil
         let reordered: Bool
         if let mirrorPaneId {
-            reordered = performRemoteTmuxMirrorOrderMutation(in: mirrorPaneId) {
+            reordered = performRemoteTmuxMirrorOrderMutation(
+                in: mirrorPaneId,
+                anchorPanelId: panelId
+            ) {
                 bonsplitController.reorderTab(tabId, toIndex: index)
             }
         } else {
@@ -28,25 +33,70 @@ extension Workspace {
     /// Applies one optimistic mirror order mutation and rolls it back if tmux rejects it.
     func performRemoteTmuxMirrorOrderMutation(
         in paneId: PaneID,
+        anchorPanelId: UUID,
         beforeRollback: () -> Void = {},
         onVerification: ((Bool) -> Void)? = nil,
         _ mutation: () -> Bool
     ) -> Bool {
         let tabs = bonsplitController.tabs(inPane: paneId)
         let previousPanelOrder = tabs.compactMap { panelIdFromSurfaceId($0.id) }
-        guard previousPanelOrder.count == tabs.count, remoteTmuxWindowOrderSync != nil else { return false }
+        let hasRemoteRoute = remoteTmuxSessionMirror(forPanelId: anchorPanelId) != nil
+            || remoteTmuxWindowOrderSync != nil
+        guard previousPanelOrder.count == tabs.count, hasRemoteRoute else { return false }
         return performRemoteTmuxMirrorMutation {
             guard mutation() else { return false }
             let desiredPanelOrder = bonsplitController.tabs(inPane: paneId).compactMap {
                 panelIdFromSurfaceId($0.id)
             }
             guard desiredPanelOrder.count == tabs.count,
-                  remoteTmuxWindowOrderSync?(desiredPanelOrder, onVerification) == true else {
+                  syncRemoteTmuxWindowOrder(
+                      anchorPanelId: anchorPanelId,
+                      orderedPanelIds: desiredPanelOrder,
+                      verification: onVerification
+                  )
+            else {
                 beforeRollback()
                 _ = reorderRemoteTmuxMirrorTabs(toPanelOrder: previousPanelOrder)
                 return false
             }
             return true
+        }
+    }
+
+    @discardableResult
+    func syncRemoteTmuxWindowOrder(
+        anchorPanelId: UUID,
+        orderedPanelIds: [UUID],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        if isRemoteTmuxMirror, let remoteTmuxWindowOrderSync {
+            return remoteTmuxWindowOrderSync(orderedPanelIds, verification)
+        }
+        if remoteTmuxSessionMirror(forPanelId: anchorPanelId) != nil {
+            return AppDelegate.shared?.remoteTmuxController.handleMirrorWindowsReordered(
+                workspaceId: id,
+                anchorPanelId: anchorPanelId,
+                orderedPanelIds: orderedPanelIds,
+                verification: verification
+            ) == true
+        }
+        return remoteTmuxWindowOrderSync?(orderedPanelIds, verification) == true
+    }
+
+    func syncRemoteTmuxWindowOrders(orderedPanelIds: [UUID]) {
+        var anchorsBySession: [ObjectIdentifier: UUID] = [:]
+        for panelId in orderedPanelIds {
+            guard let mirror = remoteTmuxSessionMirror(forPanelId: panelId) else { continue }
+            anchorsBySession[ObjectIdentifier(mirror)] = panelId
+        }
+        for anchorPanelId in anchorsBySession.values {
+            _ = syncRemoteTmuxWindowOrder(
+                anchorPanelId: anchorPanelId,
+                orderedPanelIds: orderedPanelIds
+            )
+        }
+        if anchorsBySession.isEmpty, remoteTmuxWindowOrderSync != nil {
+            _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
         }
     }
 

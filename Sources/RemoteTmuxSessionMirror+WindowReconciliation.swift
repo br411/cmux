@@ -14,6 +14,11 @@ extension RemoteTmuxSessionMirror {
         in workspace: Workspace
     ) {
         if let mirror = windowMirrorByWindowId[windowId] {
+            mirror.rebind(to: workspace, makePanel: { [weak workspace, weak connection] tmuxPaneId in
+                workspace?.makeRemoteTmuxPanePanel(onInput: { data in
+                    Task { @MainActor in connection?.sendKeys(paneId: tmuxPaneId, data: data) }
+                })
+            })
             mirror.apply(window: window)
             for paneId in window.paneIDsInOrder {
                 if let cwd = cwdByPane[paneId] { mirror.updatePaneCwd(paneId: paneId, path: cwd) }
@@ -50,9 +55,10 @@ extension RemoteTmuxSessionMirror {
                 })
             }
         )
-        mirror.onClosePaneRequest = { [weak workspace, weak mirror] tmuxPaneId in
-            guard let mirror else { return }
-            workspace?.requestRemoteTmuxPaneClose(windowMirror: mirror, tmuxPaneId: tmuxPaneId)
+        mirror.onClosePaneRequest = { [weak self, weak mirror] tmuxPaneId in
+            guard let self, let mirror else { return }
+            self.workspaceOwningWindow(windowId)?
+                .requestRemoteTmuxPaneClose(windowMirror: mirror, tmuxPaneId: tmuxPaneId)
         }
         mirror.onEstablishPaneKeyFocus = { [weak mirror] paneId, panel in
             RemoteTmuxWindowMirror.establishPaneKeyFocusWhenMounted(

@@ -2166,8 +2166,20 @@ class TabManager: ObservableObject {
 
         for panelId in plan.panelIds {
             plan.workspace.markCloseHistoryEligible(panelId: panelId)
+            if let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
+               remoteTmuxController.isMirrorWindowTab(
+                   workspaceId: plan.workspace.id,
+                   panelId: panelId
+               )
+            {
+                _ = remoteTmuxController.handleMirrorTabCloseRequested(
+                    workspaceId: plan.workspace.id,
+                    panelId: panelId
+                )
+            } else {
             _ = plan.workspace.closePanel(panelId, force: true)
         }
+    }
     }
 
     func closeCurrentWorkspaceWithConfirmation() {
@@ -2755,6 +2767,19 @@ class TabManager: ObservableObject {
         closePanelWithConfirmation(tab: tab, panelId: surfaceId)
     }
 
+    private func routeRemoteTmuxRuntimeSurfaceCloseIfNeeded(
+        tab: Workspace,
+        surfaceId: UUID
+    ) -> Bool {
+        guard let tabId = tab.surfaceIdFromPanelId(surfaceId) else { return false }
+        switch tab.routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+        case .notMirrorTab:
+            return false
+        case .routed, .rejectedMirrorTab:
+            return true
+        }
+    }
+
     /// Runtime close requests from Ghostty should only ever target the specific surface.
     /// They must not escalate into workspace/window-close semantics for "last tab".
     func closeRuntimeSurfaceWithConfirmation(tabId: UUID, surfaceId: UUID) {
@@ -2779,6 +2804,9 @@ class TabManager: ObservableObject {
                 acceptCmdD: false
             ) else { return }
         }
+        if routeRemoteTmuxRuntimeSurfaceCloseIfNeeded(tab: tab, surfaceId: surfaceId) {
+            return
+        }
 
         _ = tab.closePanel(surfaceId, force: true)
         AppDelegate.shared?.notificationStore?.clearNotifications(forTabId: tab.id, surfaceId: surfaceId)
@@ -2789,6 +2817,9 @@ class TabManager: ObservableObject {
     func closeRuntimeSurface(tabId: UUID, surfaceId: UUID) {
         guard let tab = tabs.first(where: { $0.id == tabId }) else { return }
         if tab.panels[surfaceId] == nil { tab.closeDockPanelAndClearNotifications(surfaceId, force: true); return }
+        if routeRemoteTmuxRuntimeSurfaceCloseIfNeeded(tab: tab, surfaceId: surfaceId) {
+            return
+        }
 
 #if DEBUG
         cmuxDebugLog(
@@ -3324,7 +3355,8 @@ class TabManager: ObservableObject {
               terminalPanel.surface === sourceSurface else { return }
         let previousDisplayTitle = resolvedWorkspaceDisplayTitle(for: tab).trimmingCharacters(in: .whitespacesAndNewlines)
         _ = tab.updatePanelTitle(panelId: panelId, title: title)
-        guard !tab.isRemoteTmuxMirror else { return }
+        guard !tab.isRemoteTmuxMirror,
+              tab.remoteTmuxSessionMirror(forPanelId: panelId) == nil else { return }
         if tab.focusedPanelId == panelId {
             tab.applyProcessTitle(title)
             if selectedTabId == tabId {
@@ -3349,6 +3381,7 @@ class TabManager: ObservableObject {
         guard let tab = workspacesById[tabId],
               !tab.isRemoteTmuxMirror,
               let focusedPanelId = tab.focusedPanelId,
+              tab.remoteTmuxSessionMirror(forPanelId: focusedPanelId) == nil,
               let title = tab.panelTitles[focusedPanelId] else { return }
         tab.applyProcessTitle(title)
         if selectedTabId == tabId { updateWindowTitle(for: tab) }

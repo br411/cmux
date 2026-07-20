@@ -596,7 +596,11 @@ extension RemoteTmuxWindowMirror: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldClosePane pane: PaneID) -> Bool {
-        isApplyingRemoteLayout
+        guard !isApplyingRemoteLayout else { return true }
+        if let tmuxPane = paneIdByBonsplitPane[pane] {
+            onClosePaneRequest?(tmuxPane)
+        }
+        return false
     }
 
     func splitTabBar(

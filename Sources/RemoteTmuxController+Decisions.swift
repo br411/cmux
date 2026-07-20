@@ -8,10 +8,15 @@ extension RemoteTmuxController {
         workspaceId: UUID,
         panelId: UUID,
         vertical: Bool,
+        insertFirst: Bool,
         focusIntent: RemoteTmuxSplitFocusIntent
     ) -> Bool {
-        guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
-        return mirror.requestSplit(
+        guard !insertFirst else { return false }
+        guard let target = mirrorWindowTarget(
+            workspaceId: workspaceId,
+            panelId: panelId
+        ) else { return false }
+        return target.mirror.requestSplit(
             windowPanelId: panelId,
             vertical: vertical,
             focusIntent: focusIntent
@@ -56,7 +61,7 @@ extension RemoteTmuxController {
         switch placement {
         case .end:
             afterWindowId = nil
-        case .afterPanel(let panelId):
+        case let .afterPanel(panelId):
             afterWindowId = mirror.windowId(forPanel: panelId)
         }
         let commandWorkingDirectory = Self.liveMirrorWindowWorkingDirectory(
@@ -82,7 +87,8 @@ extension RemoteTmuxController {
     ) -> Bool {
         guard let mirror = sessionMirror(workspaceId: workspaceId),
               mirror.connection.connectionState == .connected,
-              let afterWindowId = mirror.windowIdByPane[targetPaneId] else {
+              let afterWindowId = mirror.windowIdByPane[targetPaneId]
+        else {
             return false
         }
         let command = Self.newWindowCommand(
@@ -113,7 +119,8 @@ extension RemoteTmuxController {
         result: RemoteTmuxCommandResult
     ) -> [String]? {
         guard !result.succeeded,
-              RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(result.stderr) else {
+              RemoteTmuxSSHTransport.indicatesInteractiveRetryWillHelp(result.stderr)
+        else {
             return nil
         }
         return host.interactiveAuthInvocation()
@@ -168,7 +175,8 @@ extension RemoteTmuxController {
         command += afterWindowId.map { " -a -t @\($0)" } ?? " -a -t '{end}'"
         if let directory = workingDirectory?.trimmingCharacters(in: .whitespacesAndNewlines),
            !directory.isEmpty,
-           RemoteTmuxHost.controlModeLineSafeName(directory) != nil {
+           RemoteTmuxHost.controlModeLineSafeName(directory) != nil
+        {
             command += " -c \(RemoteTmuxHost.shellSingleQuoted(directory))"
         }
         return command
@@ -206,6 +214,43 @@ extension RemoteTmuxController {
         verification: ((Bool) -> Void)? = nil
     ) -> Bool {
         guard let mirror = sessionMirror(workspaceId: workspaceId) else { return false }
+        return handleMirrorWindowsReordered(
+            mirror: mirror,
+            orderedPanelIds: orderedPanelIds,
+            verification: verification
+        )
+    }
+
+    /// Pushes the order of one transferred session's window-tabs from a mixed
+    /// workspace. The anchor resolves session identity without relying on the
+    /// destination's workspace-wide mirror flag.
+    func handleMirrorWindowsReordered(
+        workspaceId: UUID,
+        anchorPanelId: UUID,
+        orderedPanelIds: [UUID],
+        verification: ((Bool) -> Void)? = nil
+    ) -> Bool {
+        guard let target = mirrorWindowTarget(
+            workspaceId: workspaceId,
+            panelId: anchorPanelId
+        ) else {
+            return false
+        }
+        let matchingPanelIds = orderedPanelIds.filter {
+            target.mirror.windowId(forPanel: $0, ownedByWorkspaceId: workspaceId) != nil
+        }
+        return handleMirrorWindowsReordered(
+            mirror: target.mirror,
+            orderedPanelIds: matchingPanelIds,
+            verification: verification
+        )
+    }
+
+    private func handleMirrorWindowsReordered(
+        mirror: RemoteTmuxSessionMirror,
+        orderedPanelIds: [UUID],
+        verification: ((Bool) -> Void)?
+    ) -> Bool {
         guard mirror.connection.connectionState == .connected else {
             mirror.rebuild()
             return false
@@ -243,7 +288,8 @@ extension RemoteTmuxController {
         guard rawId.first == "$" else { return nil }
         let digits = rawId.dropFirst()
         guard !digits.isEmpty,
-              digits.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 }) else {
+              digits.unicodeScalars.allSatisfy({ $0.value >= 48 && $0.value <= 57 })
+        else {
             return nil
         }
         return Int(String(digits))
@@ -267,7 +313,8 @@ extension RemoteTmuxController {
     ) -> [RemoteTmuxSession] {
         sessions.filter { session in
             if let sessionId = tmuxSessionNumericId(session.id),
-               mirroredSessionIds.contains(sessionId) {
+               mirroredSessionIds.contains(sessionId)
+            {
                 return false
             }
             return !mirroredNames.contains(session.name)

@@ -4831,11 +4831,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         if destinationWorkspace.id == sourceWorkspace.id {
             if let splitTarget {
-                guard let sourceTabId = sourceWorkspace.surfaceIdFromPanelId(panelId),
-                      sourceWorkspace.bonsplitController.splitPane(
-                        resolvedTargetPane,
+                guard sourceWorkspace.splitPaneForExistingSurface(
+                    panelId: panelId,
+                    targetPane: resolvedTargetPane,
                         orientation: splitTarget.orientation,
-                        movingTab: sourceTabId,
                         insertFirst: splitTarget.insertFirst
                       ) != nil else {
 #if DEBUG
@@ -4874,6 +4873,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #endif
             return moved
         }
+        // The session mirror is rooted in its dedicated workspace. Moving its
+        // final window-tab would let empty-workspace cleanup tear down the live
+        // control stream and strand the transferred surface.
+        if sourceWorkspace.isRemoteTmuxMirror,
+           sourceWorkspace.panels.count == 1,
+           sourceWorkspace.remoteTmuxSessionMirror(forPanelId: panelId) != nil
+        {
+            #if DEBUG
+                cmuxDebugLog(
+                    "surface.move.fail panel=\(panelId.uuidString.prefix(5)) reason=remoteTmuxSessionRoot " +
+                        "elapsedMs=\(elapsedMs(since: moveStart))"
+                )
+            #endif
+            return false
+        }
+
 
         let sourcePane = sourceWorkspace.paneId(forPanelId: panelId)
         let sourceIndex = sourceWorkspace.indexInPane(forPanelId: panelId)
@@ -4924,11 +4939,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 #if DEBUG
             let splitStart = ProcessInfo.processInfo.systemUptime
 #endif
-            guard let movedTabId = destinationWorkspace.surfaceIdFromPanelId(panelId),
-                  destinationWorkspace.bonsplitController.splitPane(
-                    resolvedTargetPane,
+            guard destinationWorkspace.splitPaneForExistingSurface(
+                panelId: panelId,
+                targetPane: resolvedTargetPane,
                     orientation: splitTarget.orientation,
-                    movingTab: movedTabId,
                     insertFirst: splitTarget.insertFirst
                   ) != nil else {
                 if let detachedFromDestination = destinationWorkspace.detachSurface(panelId: panelId) {

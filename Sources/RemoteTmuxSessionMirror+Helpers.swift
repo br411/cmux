@@ -18,19 +18,29 @@ extension RemoteTmuxSessionMirror {
     }
 
     /// Computes the target tab order for a remote-tmux-driven reorder, or `nil`
-    /// when no reorder is needed or safe. Pure helper called by
-    /// `Workspace.reorderRemoteTmuxMirrorTabs(toPanelOrder:)`.
+    /// when no reorder is needed or safe. Non-mirror tabs keep their exact slots,
+    /// allowing one session's transferred windows to reorder inside a mixed
+    /// destination workspace.
     ///
     /// - Parameters:
-    ///   - current: the workspace's current mirror-tab order (panel ids).
-    ///   - requested: the tmux window order mapped to panel ids.
-    /// - Returns: the new order to apply, or `nil` when the tabs already match
-    ///   `requested` or when `requested` (restricted to currently-present tabs) is
-    ///   not a permutation of `current` (sets diverge; leave the tabs untouched).
+    ///   - current: the workspace's complete current tab order (panel ids).
+    ///   - requested: one session's tmux window order mapped to panel ids.
+    /// - Returns: the merged order, or `nil` when the matching subset already
+    ///   agrees or `requested` is not a permutation of that subset.
     nonisolated static func mirrorTabReorder(current: [UUID], requested: [UUID]) -> [UUID]? {
         let present = Set(current)
         let desired = requested.filter { present.contains($0) }
-        guard desired.count == current.count, Set(desired) == present else { return nil }
-        return desired == current ? nil : desired
+        let desiredSet = Set(desired)
+        let currentSubset = current.filter { desiredSet.contains($0) }
+        guard desired.count == desiredSet.count,
+              currentSubset.count == desired.count,
+              Set(currentSubset) == desiredSet,
+              desired != currentSubset
+        else {
+            return nil
+        }
+
+        var iterator = desired.makeIterator()
+        return current.map { desiredSet.contains($0) ? (iterator.next() ?? $0) : $0 }
     }
 }

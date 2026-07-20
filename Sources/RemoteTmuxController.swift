@@ -455,22 +455,29 @@ final class RemoteTmuxController {
     /// A mirrored window's tab was renamed → `rename-window` on the remote.
     func handleMirrorWindowRenamed(workspaceId: UUID, panelId: UUID, title: String?) {
         guard let name = RemoteTmuxHost.controlModeCommandName(title),
-              let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              mirror.connection.connectionState == .connected,
-              let windowId = mirror.windowId(forPanel: panelId) else { return }
-        _ = mirror.connection.send("rename-window -t @\(windowId) \(RemoteTmuxHost.shellSingleQuoted(name))")
+              let target = mirrorWindowTarget(workspaceId: workspaceId, panelId: panelId),
+              target.mirror.connection.connectionState == .connected else { return }
+        _ = target.mirror.connection.send(
+            "rename-window -t @\(target.windowId) \(RemoteTmuxHost.shellSingleQuoted(name))"
+        )
     }
 
     /// The live session mirror + tmux window id behind a mirrored window-tab, or
     /// `nil` when `panelId` isn't a mirrored window-tab of `workspaceId` with a
     /// live connection. Shared by the kill routing and the close-confirmation
     /// check so the two can never disagree about which tabs route remotely.
-    private func mirrorWindowTarget(workspaceId: UUID, panelId: UUID)
+    func mirrorWindowTarget(workspaceId: UUID, panelId: UUID)
         -> (mirror: RemoteTmuxSessionMirror, windowId: Int)?
     {
-        guard let mirror = sessionMirrors.values.first(where: { $0.mirroredWorkspaceId == workspaceId }),
-              let windowId = mirror.windowId(forPanel: panelId) else { return nil }
+        for mirror in sessionMirrors.values {
+            if let windowId = mirror.windowId(
+                forPanel: panelId,
+                ownedByWorkspaceId: workspaceId
+            ) {
         return (mirror, windowId)
+    }
+        }
+        return nil
     }
 
     /// Whether the panel is currently a tmux window tab in a mirrored workspace.
@@ -621,6 +628,14 @@ final class RemoteTmuxController {
     func handleWindowWorkspacesClosed(workspaceIds: [UUID]) {
         let ids = Set(workspaceIds)
         var affectedHosts: [String: RemoteTmuxHost] = [:]
+        // A native window may own transferred tmux window-tabs while the
+        // session's root mirror remains open elsewhere. Re-project those live
+        // windows in the root before their weak destination owners disappear.
+        for mirror in sessionMirrors.values
+            where mirror.mirroredWorkspaceId.map(ids.contains) != true
+        {
+            mirror.releaseTransferredWindowPanels(ownedByWorkspaceIds: ids)
+        }
         for (key, mirror) in sessionMirrors {
             guard let workspaceId = mirror.mirroredWorkspaceId, ids.contains(workspaceId) else { continue }
             affectedHosts[mirror.host.connectionHash] = mirror.host

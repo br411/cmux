@@ -196,7 +196,8 @@ extension DockSplitStore {
             isRemoteTerminal: preservedTransfer?.isRemoteTerminal ?? false,
             remoteRelayPort: preservedTransfer?.remoteRelayPort,
             remotePTYSessionID: preservedTransfer?.remotePTYSessionID,
-            remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration
+            remoteCleanupConfiguration: preservedTransfer?.remoteCleanupConfiguration,
+            remoteTmuxWindow: preservedTransfer?.remoteTmuxWindow
         )
     }
 

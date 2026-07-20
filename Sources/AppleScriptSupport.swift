@@ -619,6 +619,19 @@ final class ScriptTerminal: NSObject {
             return nil
         }
 
+        if let tabId = workspace.surfaceIdFromPanelId(terminalId) {
+            switch workspace.routeRemoteTmuxNonInteractiveTabCloseIfNeeded(tabId) {
+            case .routed:
+                return nil
+            case .rejectedMirrorTab:
+                command.scriptErrorNumber = errAEEventFailed
+                command.scriptErrorString = AppleScriptStrings.terminalUnavailable
+                return nil
+            case .notMirrorTab:
+                break
+            }
+        }
+
         if workspace.panels.count == 1 {
             if state.tabManager.tabs.count > 1 {
                 state.tabManager.closeWorkspace(workspace)

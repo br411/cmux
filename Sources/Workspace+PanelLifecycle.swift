@@ -410,6 +410,14 @@ extension Workspace {
         }
 
         panels.removeValue(forKey: panelId)
+        let detachedRemoteTmuxWindow = discardDetachedRemoteTmuxWindow(panelId: panelId)
+        if closePanel, let detachedRemoteTmuxWindow {
+            detachedRemoteTmuxWindow.sessionMirror.releaseTransferredWindowPanel(
+                windowId: detachedRemoteTmuxWindow.windowId,
+                panelId: panelId,
+                from: self
+            )
+        }
         untrackRemoteTerminalSurface(panelId)
         discardRemoteDirectoryTrustState(panelId: panelId)
         pendingRemoteTerminalChildExitSurfaceIds.remove(panelId)

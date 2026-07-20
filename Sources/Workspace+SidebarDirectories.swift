@@ -38,7 +38,11 @@ extension Workspace {
     }
 
     var usesRemoteDirectoryProvenance: Bool {
-        isRemoteWorkspace || isRemoteTmuxMirror
+        if isRemoteWorkspace || isRemoteTmuxMirror {
+            return true
+        }
+        guard let focusedPanelId else { return false }
+        return remoteTmuxSessionMirror(forPanelId: focusedPanelId) != nil
     }
 
     var presentedCurrentDirectory: String? {
@@ -67,6 +71,9 @@ extension Workspace {
     }
 
     func allowsLocalDirectoryFallback(panelId: UUID) -> Bool {
+        if remoteTmuxSessionMirror(forPanelId: panelId) != nil {
+            return false
+        }
         if !usesRemoteDirectoryProvenance { return true }
         guard !remoteDirectoryTrustRequiredPanelIds.contains(panelId),
               !isRemoteTerminalSurface(panelId),

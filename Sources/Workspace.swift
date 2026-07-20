@@ -400,7 +400,8 @@ extension Workspace {
         restorableAgentObservation: RestorableAgentSessionIndex.Entry?,
         resumeBinding: SurfaceResumeBindingSnapshot?
     ) -> SessionPanelSnapshot? {
-        guard let panel = panels[panelId] else { return nil }
+        guard remoteTmuxSessionMirror(forPanelId: panelId) == nil,
+              let panel = panels[panelId] else { return nil }
 
         let indexedRestorableAgent = restorableAgentObservation?.snapshot
         let compatibleIndexedRestorableAgent = indexedRestorableAgent.flatMap {
@@ -3507,8 +3508,7 @@ final class Workspace: Identifiable, ObservableObject {
     }
 
     func routeRemoteTmuxNonInteractiveTabCloseIfNeeded(_ tabId: TabID) -> WorkspaceRemoteTmuxNonInteractiveCloseRoute {
-        guard isRemoteTmuxMirror,
-              let panelId = panelIdFromSurfaceId(tabId),
+        guard let panelId = panelIdFromSurfaceId(tabId),
               let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
               remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
         else {
@@ -3600,7 +3600,7 @@ final class Workspace: Identifiable, ObservableObject {
         configureTerminalPanel(terminalPanel)
     }
 
-    private func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
+    func configureTerminalPanel(_ terminalPanel: TerminalPanel) {
         terminalPanel.onRequestWorkspacePaneFlash = { [weak self, weak terminalPanel] reason in
             guard let self, let terminalPanel else { return }
             self.triggerWorkspacePaneFlash(panelId: terminalPanel.id, reason: reason)
@@ -4007,6 +4007,7 @@ final class Workspace: Identifiable, ObservableObject {
     @discardableResult
     private func normalizePinnedTabs(
         in paneId: PaneID,
+        mirrorAnchorPanelId: UUID? = nil,
         beforeMirrorRollback: () -> Void = {},
         onMirrorVerification: ((Bool) -> Void)? = nil
     ) -> Bool {
@@ -4025,16 +4026,27 @@ final class Workspace: Identifiable, ObservableObject {
         }
         let desiredOrder = pinnedTabs + unpinnedTabs
 
-        if isRemoteTmuxMirror, desiredOrder.map(\.id) != tabs.map(\.id) {
+        if desiredOrder.map(\.id) != tabs.map(\.id) {
             let desiredPanelOrder = desiredOrder.compactMap { panelIdFromSurfaceId($0.id) }
+            let firstRemotePanelId = desiredPanelOrder.first(where: {
+                remoteTmuxSessionMirror(forPanelId: $0) != nil
+            }) ?? (isRemoteTmuxMirror ? desiredPanelOrder.first : nil)
+            if let firstRemotePanelId {
             guard desiredPanelOrder.count == desiredOrder.count else { return false }
+                let anchorPanelId = mirrorAnchorPanelId.flatMap { candidate in
+                    (isRemoteTmuxMirror || remoteTmuxSessionMirror(forPanelId: candidate) != nil)
+                        ? candidate
+                        : nil
+                } ?? firstRemotePanelId
             return performRemoteTmuxMirrorOrderMutation(
                 in: paneId,
+                    anchorPanelId: anchorPanelId,
                 beforeRollback: beforeMirrorRollback,
                 onVerification: onMirrorVerification
             ) {
                 reorderRemoteTmuxMirrorTabs(toPanelOrder: desiredPanelOrder)
             }
+        }
         }
 
         for (index, desiredTab) in desiredOrder.enumerated() {
@@ -4095,12 +4107,10 @@ final class Workspace: Identifiable, ObservableObject {
             title: resolvedPanelTitle(panelId: panelId, fallback: baseTitle),
             hasCustomTitle: panelCustomTitles[panelId] != nil
         )
-        // A remote tmux mirror tab rename propagates to `rename-window`.
-        if isRemoteTmuxMirror {
+        // A remote tmux window-tab rename propagates after workspace transfer too.
             AppDelegate.shared?.remoteTmuxController.handleMirrorWindowRenamed(
                 workspaceId: id, panelId: panelId, title: trimmed
             )
-        }
         return true
     }
 
@@ -4187,7 +4197,15 @@ final class Workspace: Identifiable, ObservableObject {
 
     func panelTitle(panelId: UUID) -> String? {
         guard let panel = panels[panelId] else { return nil }
-        let fallback = panelTitles[panelId] ?? panel.displayTitle
+        let fallback: String
+        if remoteTmuxSessionMirror(forPanelId: panelId) != nil,
+           let tabId = surfaceIdFromPanelId(panelId),
+           let tab = bonsplitController.tab(tabId)
+        {
+            fallback = tab.title
+        } else {
+            fallback = panelTitles[panelId] ?? panel.displayTitle
+        }
         return resolvedPanelTitle(panelId: panelId, fallback: fallback)
     }
 
@@ -4227,6 +4245,7 @@ final class Workspace: Identifiable, ObservableObject {
         }
         guard normalizePinnedTabs(
             in: paneId,
+            mirrorAnchorPanelId: panelId,
             beforeMirrorRollback: restorePinState,
             onMirrorVerification: handleVerification
         ) else {
@@ -4705,7 +4724,7 @@ final class Workspace: Identifiable, ObservableObject {
         // fallback (which reports "needs confirm" whenever the cursor isn't at a
         // marked prompt — i.e. always, for a mirror). Ask the control connection
         // whether any of the window's panes is running an active command instead.
-        if isRemoteTmuxMirror,
+        if remoteTmuxSessionMirror(forPanelId: panelId) != nil,
            let activity = AppDelegate.shared?.remoteTmuxController
                .cachedMirrorTabActivity(workspaceId: id, panelId: panelId) {
             return activity.hasActiveCommand
@@ -5050,6 +5069,9 @@ final class Workspace: Identifiable, ObservableObject {
 
     /// Per-window multi-pane renderers, keyed by mirrored window-tab panel id.
     private(set) var remoteTmuxWindowMirrors: [UUID: RemoteTmuxWindowMirror] = [:]
+    /// Session routing retained by remote tmux window-tabs moved out of their
+    /// original mirror workspace. Keyed by the transferred display panel.
+    private var detachedRemoteTmuxWindowsByPanelId: [UUID: DetachedRemoteTmuxWindow] = [:]
 
     /// Multi-pane renderer for a window-tab panel.
     func remoteTmuxWindowMirror(forPanelId panelId: UUID) -> RemoteTmuxWindowMirror? {
@@ -5063,6 +5085,66 @@ final class Workspace: Identifiable, ObservableObject {
         } else {
             remoteTmuxWindowMirrors.removeValue(forKey: panelId)
         }
+    }
+    func detachedRemoteTmuxWindow(forPanelId panelId: UUID) -> DetachedRemoteTmuxWindow? {
+        if let detached = detachedRemoteTmuxWindowsByPanelId[panelId] {
+            return detached
+        }
+        guard let sessionMirror = remoteTmuxSessionMirror,
+              let windowId = sessionMirror.windowId(forPanel: panelId) else { return nil }
+        return DetachedRemoteTmuxWindow(sessionMirror: sessionMirror, windowId: windowId)
+    }
+
+    func adoptDetachedRemoteTmuxWindow(
+        _ detached: DetachedRemoteTmuxWindow?,
+        panelId: UUID
+    ) {
+        guard let detached else { return }
+        // Install the per-panel identity before rebinding. A cached CWD applied
+        // by moveWindowPanel must already be classified as remote in a normal
+        // destination workspace.
+        detachedRemoteTmuxWindowsByPanelId[panelId] = detached
+        guard detached.sessionMirror.moveWindowPanel(
+            windowId: detached.windowId,
+            panelId: panelId,
+            to: self
+        ) else {
+            detachedRemoteTmuxWindowsByPanelId.removeValue(forKey: panelId)
+            return
+        }
+        if remoteTmuxSessionMirror === detached.sessionMirror {
+            detachedRemoteTmuxWindowsByPanelId.removeValue(forKey: panelId)
+        }
+    }
+
+    @discardableResult
+    func discardDetachedRemoteTmuxWindow(panelId: UUID) -> DetachedRemoteTmuxWindow? {
+        detachedRemoteTmuxWindowsByPanelId.removeValue(forKey: panelId)
+    }
+
+    func remoteTmuxSessionMirror(forPanelId panelId: UUID) -> RemoteTmuxSessionMirror? {
+        if let detached = detachedRemoteTmuxWindowsByPanelId[panelId] {
+            return detached.sessionMirror
+        }
+
+        guard remoteTmuxSessionMirror?.windowId(forPanel: panelId) != nil else { return nil }
+        return remoteTmuxSessionMirror
+    }
+
+    func remoteTmuxSessionMirrorsOwningWindows() -> [RemoteTmuxSessionMirror] {
+        var mirrors: [RemoteTmuxSessionMirror] = []
+        var identities: Set<ObjectIdentifier> = []
+        if let remoteTmuxSessionMirror {
+            mirrors.append(remoteTmuxSessionMirror)
+            identities.insert(ObjectIdentifier(remoteTmuxSessionMirror))
+        }
+        for detached in detachedRemoteTmuxWindowsByPanelId.values {
+            let identity = ObjectIdentifier(detached.sessionMirror)
+            if identities.insert(identity).inserted {
+                mirrors.append(detached.sessionMirror)
+            }
+        }
+        return mirrors
     }
 
     var isRestorableInSessionSnapshot: Bool {
@@ -6902,11 +6984,13 @@ final class Workspace: Identifiable, ObservableObject {
         // panel — not the pane's selected tab, which is all the bonsplit-level
         // veto in splitTabBar(_:shouldSplitPane:orientation:) can see — keeps
         // programmatic splits aimed at a background window-tab precise.
-        if isRemoteTmuxMirror {
+        if isRemoteTmuxMirror || remoteTmuxSessionMirror(forPanelId: panelId) != nil {
             let routed = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
                 workspaceId: id,
                 panelId: panelId,
-                vertical: orientation == .vertical, focusIntent: focus ? .focusCreatedPane : .preserveActivePane
+                vertical: orientation == .vertical,
+                insertFirst: insertFirst,
+                focusIntent: focus ? .focusCreatedPane : .preserveActivePane
             ) ?? false
             return routed ? .routedToRemote : .failed
         }
@@ -8979,6 +9063,33 @@ final class Workspace: Identifiable, ObservableObject {
         return UUID(uuidString: bestPane.id)
     }
 
+    /// Moves an existing surface into a new cmux pane without treating the
+    /// layout operation as a request to split the remote tmux pane it renders.
+    @discardableResult
+    func splitPaneForExistingSurface(
+        panelId: UUID,
+        targetPane: PaneID? = nil,
+        orientation: SplitOrientation,
+        insertFirst: Bool
+    ) -> PaneID? {
+        guard let tabId = surfaceIdFromPanelId(panelId) else { return nil }
+        isProgrammaticSplit = true
+        defer { isProgrammaticSplit = false }
+        if let targetPane {
+            return bonsplitController.splitPane(
+                targetPane,
+                orientation: orientation,
+                movingTab: tabId,
+                insertFirst: insertFirst
+            )
+        }
+        return bonsplitController.splitPane(
+            orientation: orientation,
+            movingTab: tabId,
+            insertFirst: insertFirst
+        )
+    }
+
     @discardableResult
     func moveSurface(panelId: UUID, toPane paneId: PaneID, atIndex index: Int? = nil, focus: Bool = true) -> Bool {
         guard let tabId = surfaceIdFromPanelId(panelId) else { return false }
@@ -9194,6 +9305,7 @@ final class Workspace: Identifiable, ObservableObject {
         } else if let customSidebarPanel = detached.panel as? CustomSidebarPanel {
             customSidebarPanel.reattach(to: self)
         }
+        adoptDetachedRemoteTmuxWindow(detached.remoteTmuxWindow, panelId: detached.panelId)
         AppDelegate.shared?.notificationStore?.rebindSurfaceNotifications(
             fromTabId: detached.sourceWorkspaceId,
             toTabId: id,
@@ -11707,8 +11819,9 @@ extension Workspace: BonsplitDelegate {
         let tabStripClose = tabCloseButtonClose != nil
         let explicitUserClose = explicitUserCloseTabIds.remove(tab.id) != nil || tabStripClose
 
-        // Remote tmux mirror tab closes route to tmux; tmux reports local removal.
-        if isRemoteTmuxMirror, !forceCloseTabIds.contains(tab.id),
+        // Remote tmux window-tabs route to tmux even after moving workspaces;
+        // tmux reports the authoritative local removal.
+        if !forceCloseTabIds.contains(tab.id),
            let panelId = panelIdFromSurfaceId(tab.id),
            let remoteTmuxController = AppDelegate.shared?.remoteTmuxController,
            remoteTmuxController.cachedMirrorTabActivity(workspaceId: id, panelId: panelId) != nil {
@@ -11983,7 +12096,8 @@ extension Workspace: BonsplitDelegate {
                     ? remoteConfiguration?.relayPort
                     : nil,
                 remotePTYSessionID: remotePTYSessionIDForSnapshot(panelId: panelId),
-                remoteCleanupConfiguration: transferredRemoteCleanupConfiguration
+                remoteCleanupConfiguration: transferredRemoteCleanupConfiguration,
+                remoteTmuxWindow: detachedRemoteTmuxWindow(forPanelId: panelId)
             ), for: tabId)
         } else {
             if let closedBrowserRestoreSnapshot {
@@ -12075,22 +12189,31 @@ extension Workspace: BonsplitDelegate {
     }
 
     func splitTabBar(_ controller: BonsplitController, shouldSplitPane pane: PaneID, orientation: SplitOrientation) -> Bool {
-        // In a remote tmux mirror, split means tmux `split-window`; always veto
-        // local splits so the mirror never gains an orphan pane.
-        guard isRemoteTmuxMirror else { return true }
-        if let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
-           let panelId = panelIdFromSurfaceId(tabId) {
-            _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(workspaceId: id, panelId: panelId, vertical: orientation == .vertical, focusIntent: .focusCreatedPane)
+        guard !isProgrammaticSplit else { return true }
+        guard let tabId = bonsplitController.selectedTab(inPane: pane)?.id,
+              let panelId = panelIdFromSurfaceId(tabId),
+              remoteTmuxSessionMirror(forPanelId: panelId) != nil
+        else {
+            return true
         }
+        // A moved remote-tmux window-tab remains remotely owned even in a mixed
+        // destination workspace. Route its split to tmux and veto a local pane.
+        _ = AppDelegate.shared?.remoteTmuxController.handleMirrorTabSplitRequested(
+            workspaceId: id,
+            panelId: panelId,
+            vertical: orientation == .vertical,
+            insertFirst: false,
+            focusIntent: .focusCreatedPane
+        )
         return false
     }
 
     func splitTabBar(_ controller: BonsplitController, didReorderTabsInPane pane: PaneID, orderedTabIds: [TabID]) {
-        // A remote tmux mirror tab reorder propagates to tmux window order.
-        guard isRemoteTmuxMirror else { return }
+        // Group by per-panel session identity so transferred window-tabs in a
+        // mixed workspace still propagate without affecting local tabs.
         let orderedPanelIds = orderedTabIds.compactMap { panelIdFromSurfaceId($0) }
         guard !orderedPanelIds.isEmpty else { return }
-        _ = remoteTmuxWindowOrderSync?(orderedPanelIds, nil)
+        syncRemoteTmuxWindowOrders(orderedPanelIds: orderedPanelIds)
     }
 
     func splitTabBar(_ controller: BonsplitController, didMoveTab tab: Bonsplit.Tab, fromPane source: PaneID, toPane destination: PaneID) {
@@ -12104,8 +12227,8 @@ extension Workspace: BonsplitDelegate {
         }
         debugLastDidMoveTabTimestamp = now
         debugDidMoveTabEventCount += 1
-        let movedPanelId = panelIdFromSurfaceId(tab.id)
-        let movedPanel = movedPanelId?.uuidString.prefix(5) ?? "unknown"
+        let debugMovedPanelId = panelIdFromSurfaceId(tab.id)
+        let movedPanel = debugMovedPanelId?.uuidString.prefix(5) ?? "unknown"
         let selectedBefore = controller.selectedTab(inPane: destination)
             .map { String(String(describing: $0.id).prefix(5)) } ?? "nil"
         let focusedPaneBefore = controller.focusedPaneId?.id.uuidString.prefix(5) ?? "nil"
@@ -12124,7 +12247,8 @@ extension Workspace: BonsplitDelegate {
 #if DEBUG
         let movedPanelIdAfter = panelIdFromSurfaceId(tab.id)
 #endif
-        if let movedPanelId = panelIdFromSurfaceId(tab.id) {
+        let movedPanelId = panelIdFromSurfaceId(tab.id)
+        if let movedPanelId {
             scheduleMovedTerminalRefresh(panelId: movedPanelId)
         }
 #if DEBUG
@@ -12140,7 +12264,11 @@ extension Workspace: BonsplitDelegate {
         )
 #endif
         normalizePinnedTabs(in: source)
-        normalizePinnedTabs(in: destination)
+        normalizePinnedTabs(in: destination, mirrorAnchorPanelId: movedPanelId)
+        let destinationPanelIds = controller.tabs(inPane: destination).compactMap {
+            panelIdFromSurfaceId($0.id)
+        }
+        syncRemoteTmuxWindowOrders(orderedPanelIds: destinationPanelIds)
         scheduleTerminalGeometryReconcile()
         if !isDetachingCloseTransaction {
             scheduleFocusReconcile()
@@ -12231,6 +12359,50 @@ extension Workspace: BonsplitDelegate {
                 return false
             }
         }
+        if !isDetachingCloseTransaction,
+           let remoteTmuxController = AppDelegate.shared?.remoteTmuxController
+        {
+            let remotePanelIds = tabs.compactMap { tab -> UUID? in
+                guard !forceCloseTabIds.contains(tab.id),
+                      let panelId = panelIdFromSurfaceId(tab.id),
+                      remoteTmuxController.isMirrorWindowTab(workspaceId: id, panelId: panelId)
+                else {
+                    return nil
+                }
+                return panelId
+            }
+            if !remotePanelIds.isEmpty {
+                for panelId in remotePanelIds {
+                    if remoteTmuxController.handleMirrorTabCloseRequested(
+                        workspaceId: id,
+                        panelId: panelId
+                    ) {
+                        markCloseHistoryEligible(panelId: panelId)
+                    }
+                }
+                let localPanelIds = tabs.compactMap { tab -> UUID? in
+                    guard let panelId = panelIdFromSurfaceId(tab.id),
+                          !remotePanelIds.contains(panelId)
+                    else {
+                        return nil
+                    }
+                    return panelId
+                }
+                if !localPanelIds.isEmpty {
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self else { return }
+                        for panelId in localPanelIds where self.panels[panelId] != nil {
+                            self.markCloseHistoryEligible(panelId: panelId)
+                            _ = self.closePanel(panelId, force: true)
+                        }
+                    }
+                }
+                pendingPaneClosePanelIds.removeValue(forKey: pane.id)
+                pendingPaneCloseHistoryEntries.removeValue(forKey: pane.id)
+                return false
+            }
+        }
+
         let panelIds = tabs.compactMap { panelIdFromSurfaceId($0.id) }
         pendingPaneClosePanelIds[pane.id] = panelIds
         if suppressClosedPanelHistory || isDetachingCloseTransaction {

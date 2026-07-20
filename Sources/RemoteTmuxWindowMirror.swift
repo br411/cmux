@@ -42,7 +42,7 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
     @ObservationIgnored weak var connection: RemoteTmuxControlConnection?
     @ObservationIgnored weak var workspaceBonsplitController: BonsplitController?
     /// Creates a configured manual-I/O pane panel whose input goes to `tmuxPaneId`.
-    @ObservationIgnored let makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
+    @ObservationIgnored var makePanel: (_ tmuxPaneId: Int) -> TerminalPanel?
     @ObservationIgnored var onClosePaneRequest: ((Int) -> Void)?
     /// Establishes keyboard (first-responder) focus for a pane the mirror just
     /// created and made active. A freshly split pane is born active and visible
@@ -331,6 +331,27 @@ final class RemoteTmuxWindowMirror: RemoteTmuxControlPaneMutationOwner {
         }
         reconcile(layout: layout)
     }
+    /// Rehomes a live window renderer after its container tab moves to another
+    /// workspace. Existing pane surfaces keep their runtime state; future panes
+    /// inherit the destination workspace and its Bonsplit configuration.
+    func rebind(
+        to workspace: Workspace,
+        makePanel: @escaping (_ tmuxPaneId: Int) -> TerminalPanel?
+    ) {
+        let controllerChanged = workspaceBonsplitController !== workspace.bonsplitController
+        if controllerChanged {
+            workspaceBonsplitController = workspace.bonsplitController
+        }
+        self.makePanel = makePanel
+        for panel in panelsByPaneId.values {
+            panel.updateWorkspaceId(workspace.id)
+            workspace.configureTerminalPanel(panel)
+        }
+        if controllerChanged {
+            observeWorkspaceBonsplitConfiguration()
+        }
+    }
+
 
     /// All tmux pane ids currently in the window, depth-first left→right.
     var paneIDsInOrder: [Int] { layout.paneIDsInOrder }

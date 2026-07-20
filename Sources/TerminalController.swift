@@ -11857,7 +11857,9 @@ class TerminalController {
                 return
             }
 
-            if tab.isRemoteTmuxMirror, direction.insertFirst {
+            if tab.isRemoteTmuxMirror || tab.remoteTmuxSessionMirror(forPanelId: targetSurface) != nil,
+               direction.insertFirst
+            {
                 // Routed tmux `split-window` cannot insert before the target
                 // pane; reject before mutating the remote session.
                 result = Self.v1MirrorDirectionError

@@ -66,7 +66,9 @@ extension TerminalController {
         for key in ["surface_id", "before_surface_id", "after_surface_id"] {
             guard let rawID = params[key]?.foundationObject as? String,
                   let surfaceID = UUID(uuidString: rawID) else { continue }
-            if locateRemoteTmuxMirrorContainer(surfaceID) != nil { return surfaceID }
+            if locateRemoteTmuxMirrorContainer(surfaceID) != nil {
+                return surfaceID
+            }
         }
         return nil
     }
@@ -86,18 +88,27 @@ extension TerminalController {
               }),
               let sourcePanelID = ws.controlReorderContainerPanelID(for: surfaceID),
               let sourcePane = ws.paneId(forPanelId: sourcePanelID),
-              let windowID = v2ResolveWindowId(tabManager: tabManager) else {
+              let windowID = v2ResolveWindowId(tabManager: tabManager)
+        else {
             return .surfaceNotFound(surfaceID)
         }
 
         let targetIndex: Int
         if let index = inputs.index {
-            targetIndex = index
+            guard let sourceIndex = ws.indexInPane(forPanelId: sourcePanelID) else {
+                return .reorderFailed
+            }
+            let tabCount = ws.bonsplitController.tabs(inPane: sourcePane).count
+            let finalIndex = min(max(index, 0), max(tabCount - 1, 0))
+            // Bonsplit takes an insertion boundary rather than the requested
+            // final index. Crossing the source tab consumes one boundary.
+            targetIndex = finalIndex > sourceIndex ? finalIndex + 1 : finalIndex
         } else if let beforeSurfaceID = inputs.beforeSurfaceID {
             guard let anchorPanelID = ws.controlReorderContainerPanelID(for: beforeSurfaceID),
                   let anchorPane = ws.paneId(forPanelId: anchorPanelID),
                   anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID) else {
+                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID)
+            else {
                 return .anchorNotInSamePane
             }
             targetIndex = anchorIndex
@@ -105,7 +116,8 @@ extension TerminalController {
             guard let anchorPanelID = ws.controlReorderContainerPanelID(for: afterSurfaceID),
                   let anchorPane = ws.paneId(forPanelId: anchorPanelID),
                   anchorPane == sourcePane,
-                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID) else {
+                  let anchorIndex = ws.indexInPane(forPanelId: anchorPanelID)
+            else {
                 return .anchorNotInSamePane
             }
             targetIndex = anchorIndex + 1
@@ -218,7 +230,8 @@ extension TerminalController {
             remotePane = remoteLocation.pane
         } else if requestedPaneID == nil,
                   let focusedPanelID = workspace.focusedPanelId,
-                  workspace.isRemoteTmuxControlContainer(focusedPanelID) {
+                  workspace.isRemoteTmuxControlContainer(focusedPanelID)
+        {
             guard let activePane = workspace.activeRemoteTmuxControlPane(
                 containerPanelID: focusedPanelID
             ) else { return nil }
@@ -253,7 +266,8 @@ extension TerminalController {
         let surfaces = workspace.bonsplitController.tabs(inPane: paneID).compactMap {
             tab -> ControlPaneSurfaceSummary? in
             guard let panelID = workspace.panelIdFromSurfaceId(tab.id),
-                  !workspace.isRemoteTmuxControlContainer(panelID) else {
+                  !workspace.isRemoteTmuxControlContainer(panelID)
+            else {
                 return nil
             }
             let panel = workspace.panels[panelID]

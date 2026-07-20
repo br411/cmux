@@ -31,7 +31,15 @@ extension AppDelegate {
               let sourceWorkspace = located.tabManager.tabs.first(where: { $0.id == located.workspaceId }),
               sourceWorkspace.panels[located.panelId] != nil,
               let destinationManager = tabManagerFor(tabId: targetWorkspaceId),
-              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId }) else {
+              destinationManager.tabs.contains(where: { $0.id == targetWorkspaceId })
+        else {
+            return false
+        }
+        if targetWorkspaceId != sourceWorkspace.id,
+           sourceWorkspace.isRemoteTmuxMirror,
+           sourceWorkspace.panels.count == 1,
+           sourceWorkspace.remoteTmuxSessionMirror(forPanelId: located.panelId) != nil
+        {
             return false
         }
         return true

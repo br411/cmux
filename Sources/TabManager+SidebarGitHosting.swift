@@ -1,9 +1,10 @@
-import Foundation
 import CmuxGit
-import CmuxSidebarGit
 import CmuxSidebar
+import CmuxSidebarGit
+import Foundation
 
 // MARK: - SidebarGitHosting conformance
+
 //
 // TabManager is the window-side host of the extracted CmuxSidebarGit
 // services: snapshot reads of workspace/panel state, synchronous projection
@@ -25,7 +26,7 @@ extension TabManager: SidebarGitHosting {
 
     func isRemoteWorkspace(_ workspaceId: UUID) -> Bool? {
         guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return nil }
-        return workspace.isRemoteWorkspace || workspace.isRemoteTmuxMirror
+        return workspace.isRemoteWorkspace
     }
 
     func panelIds(in workspaceId: UUID) -> [UUID] {
@@ -42,7 +43,9 @@ extension TabManager: SidebarGitHosting {
     }
 
     func isRemoteTerminalPanel(workspaceId: UUID, panelId: UUID) -> Bool {
-        tabs.first(where: { $0.id == workspaceId })?.isRemoteTerminalSurface(panelId) == true
+        guard let workspace = tabs.first(where: { $0.id == workspaceId }) else { return false }
+        return workspace.isRemoteTerminalSurface(panelId) ||
+            workspace.remoteTmuxSessionMirror(forPanelId: panelId) != nil
     }
 
     func gitProbeDirectory(workspaceId: UUID, panelId: UUID) -> String? {
@@ -111,7 +114,8 @@ extension TabManager: SidebarGitHosting {
 
     func updateReportedSurfaceDirectory(tabId: UUID, surfaceId: UUID, directory: String, displayLabel: String? = nil) {
         if let workspace = tabs.first(where: { $0.id == tabId }),
-           !workspace.allowsLocalDirectoryFallback(panelId: surfaceId) {
+           !workspace.allowsLocalDirectoryFallback(panelId: surfaceId)
+        {
             updateRemoteSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)
         } else {
             updateSurfaceDirectory(tabId: tabId, surfaceId: surfaceId, directory: directory, displayLabel: displayLabel)

@@ -16,8 +16,10 @@ extension Workspace {
     }
 
     func remoteTmuxControlPane(paneID: UUID) -> RemoteTmuxControlPaneLocation? {
-        if let sessionMirror = remoteTmuxSessionMirror {
-            return sessionMirror.controlPaneLocation(paneID: paneID)
+        for sessionMirror in remoteTmuxSessionMirrorsOwningWindows() {
+            if let pane = sessionMirror.controlPaneLocation(workspaceId: id, paneID: paneID) {
+                return pane
+            }
         }
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
             if let pane = mirror.controlPane(paneID: paneID) {
@@ -33,8 +35,10 @@ extension Workspace {
     }
 
     func remoteTmuxControlPane(surfaceID: UUID) -> RemoteTmuxControlPaneLocation? {
-        if let sessionMirror = remoteTmuxSessionMirror {
-            return sessionMirror.controlPaneLocation(surfaceID: surfaceID)
+        for sessionMirror in remoteTmuxSessionMirrorsOwningWindows() {
+            if let pane = sessionMirror.controlPaneLocation(workspaceId: id, surfaceID: surfaceID) {
+                return pane
+            }
         }
         for (containerPanelID, mirror) in remoteTmuxWindowMirrors {
             if let pane = mirror.controlPane(surfaceID: surfaceID) {
@@ -52,8 +56,11 @@ extension Workspace {
     func remoteTmuxControlPanes(
         containerPanelID: UUID
     ) -> [RemoteTmuxControlPaneLocation] {
-        if let sessionMirror = remoteTmuxSessionMirror {
-            return sessionMirror.controlPaneLocations(containerPanelID: containerPanelID)
+        if let sessionMirror = remoteTmuxSessionMirror(forPanelId: containerPanelID) {
+            return sessionMirror.controlPaneLocations(
+                workspaceId: id,
+                containerPanelID: containerPanelID
+            )
         }
         guard let mirror = remoteTmuxWindowMirrors[containerPanelID] else { return [] }
         return mirror.controlPanes().map {
@@ -67,7 +74,7 @@ extension Workspace {
     }
 
     func isRemoteTmuxControlContainer(_ panelID: UUID) -> Bool {
-        remoteTmuxSessionMirror?.windowId(forPanel: panelID) != nil
+        remoteTmuxSessionMirror(forPanelId: panelID) != nil
             || remoteTmuxWindowMirrors[panelID] != nil
     }
 
