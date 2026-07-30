@@ -3986,8 +3986,10 @@ mod tests {
     fn hosted_stager_exposes_coupled_state_only_after_colors() {
         let mut stager = HostedFrameStager::new(40);
         let mut resize = Frame::new(MessageKind::Resized, {
+            let replay = b"authoritative replay";
             let mut payload = Vec::from([101, 0, 37, 0]);
-            payload.extend_from_slice(b"authoritative replay");
+            payload.extend_from_slice(&(replay.len() as u32).to_le_bytes());
+            payload.extend_from_slice(replay);
             payload
         });
         resize.flags = FLAG_COLORS_FOLLOW;
@@ -4053,6 +4055,26 @@ mod tests {
         let mut exit = Frame::new(MessageKind::Exit, vec![]);
         exit.sequence = 2;
         assert!(stager.push(exit).is_err(), "a coupled frame requires Colors exactly next");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn hosted_stager_rejects_malformed_resized_replay_lengths() {
+        let mut oversized = Vec::from([80, 0, 24, 0]);
+        oversized.extend_from_slice(&((VT_REPLAY_MAX_BYTES as u32) + 1).to_le_bytes());
+
+        for payload in [
+            vec![80, 0, 24, 0],
+            vec![80, 0, 24, 0, 1, 0, 0, 0],
+            vec![80, 0, 24, 0, 0, 0, 0, 0, b'x'],
+            oversized,
+        ] {
+            let mut stager = HostedFrameStager::new(0);
+            let mut resized = Frame::new(MessageKind::Resized, payload);
+            resized.flags = FLAG_COLORS_FOLLOW;
+            resized.sequence = 1;
+            assert!(stager.push(resized).is_err());
+        }
     }
 
     #[cfg(unix)]
